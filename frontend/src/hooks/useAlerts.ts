@@ -1,45 +1,71 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { fetchAuthSession } from "aws-amplify/auth";
+import type { Alert } from "../types";
 
-export interface Alert {
-  alert_type: string;
-  severity: "CRITICAL" | "HIGH" | "MEDIUM" | "INFO";
-  patient_id: string;
-  message: string;
-  details: Record<string, any>;
-  timestamp: string;
-}
+// Re-export for components that import from here
+export type { Alert };
+
+const MAX_ALERTS = 50;
+const RECONNECT_DELAY_MS = 3000;
 
 export function useAlerts(clinicianId: string) {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!clinicianId) return;
 
+    let isMounted = true;
+
     const connect = async () => {
-      const session = await fetchAuthSession();
-      const token = session.tokens?.idToken?.toString();
-      const wsUrl = `${import.meta.env.VITE_WS_URL}/api/alerts/ws/${clinicianId}?token=${token}`;
+      try {
+        const session = await fetchAuthSession();
+        const token = session.tokens?.idToken?.toString();
+        const wsUrl = `${import.meta.env.VITE_WS_URL}/api/alerts/ws/${clinicianId}?token=${token}`;
 
-      wsRef.current = new WebSocket(wsUrl);
+        wsRef.current = new WebSocket(wsUrl);
 
-      wsRef.current.onmessage = (event) => {
-        const alert: Alert = JSON.parse(event.data);
-        setAlerts((prev) => [alert, ...prev].slice(0, 50)); // keep last 50
-      };
+        wsRef.current.onmessage = (event) => {
+          if (!isMounted) return;
+          try {
+            const alert: Alert = JSON.parse(event.data);
+            setAlerts((prev) => [alert, ...prev].slice(0, MAX_ALERTS));
+          } catch {
+            console.error("[useAlerts] Failed to parse alert message");
+          }
+        };
 
-      wsRef.current.onclose = () => {
-        setTimeout(connect, 3000); // auto-reconnect
-      };
+        wsRef.current.onclose = () => {
+          if (!isMounted) return;
+          reconnectTimerRef.current = setTimeout(connect, RECONNECT_DELAY_MS);
+        };
+
+        wsRef.current.onerror = () => {
+          wsRef.current?.close();
+        };
+      } catch {
+        if (isMounted) {
+          reconnectTimerRef.current = setTimeout(connect, RECONNECT_DELAY_MS);
+        }
+      }
     };
 
     connect();
-    return () => wsRef.current?.close();
+
+    return () => {
+      isMounted = false;
+      wsRef.current?.close();
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+      }
+    };
   }, [clinicianId]);
 
-  const dismissAlert = (timestamp: string) =>
-    setAlerts((prev) => prev.filter((a) => a.timestamp !== timestamp));
+  const dismissAlert = useCallback(
+    (timestamp: string) => setAlerts((prev) => prev.filter((a) => a.timestamp !== timestamp)),
+    [],
+  );
 
   return { alerts, dismissAlert };
 }

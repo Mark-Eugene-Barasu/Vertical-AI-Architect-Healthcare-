@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import boto3
 import os
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 from boto3.dynamodb.conditions import Key
 
 TABLE_NAME = "medimind-clinical-notes"

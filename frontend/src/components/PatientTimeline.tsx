@@ -1,14 +1,6 @@
-import { useState, useEffect } from "react";
-import { notesApi } from "../services/api";
-import axios from "axios";
-
-interface TimelineEvent {
-  timestamp: string;
-  event_type: string;
-  title: string;
-  data: Record<string, any>;
-  clinician_id: string;
-}
+import { useState } from "react";
+import { timelineApi } from "../services/api";
+import type { TimelineEvent } from "../types";
 
 const EVENT_ICONS: Record<string, string> = {
   NOTE: "📋",
@@ -41,7 +33,7 @@ export default function PatientTimeline() {
     setLoading(true);
     setError("");
     try {
-      const { data } = await axios.get(`/api/timeline/${patientId}`);
+      const { data } = await timelineApi.get(patientId);
       setTimeline(data.timeline);
     } catch {
       setError("Failed to load timeline.");
@@ -59,20 +51,22 @@ export default function PatientTimeline() {
           value={patientId}
           onChange={(e) => setPatientId(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && fetchTimeline()}
+          aria-label="Patient ID"
         />
         <button onClick={fetchTimeline} disabled={loading}>
           {loading ? "Loading..." : "Load Timeline"}
         </button>
       </div>
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
 
       {timeline.length > 0 && (
-        <div className="timeline">
+        <div className="timeline" role="list" aria-label="Patient timeline events">
           {timeline.map((event, idx) => (
-            <div key={idx} className="timeline-event">
+            <div key={idx} className="timeline-event" role="listitem">
               <div
                 className="timeline-dot"
                 style={{ background: EVENT_COLORS[event.event_type] || "#718096" }}
+                aria-hidden="true"
               >
                 {EVENT_ICONS[event.event_type] || "📌"}
               </div>

@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import boto3
 import os
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 TABLE_NAME = "medimind-organizations"
 dynamodb = boto3.resource("dynamodb", region_name=os.getenv("AWS_REGION", "us-east-1"))

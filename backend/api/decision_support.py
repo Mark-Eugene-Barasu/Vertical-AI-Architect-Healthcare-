@@ -1,14 +1,20 @@
-from fastapi import APIRouter, HTTPException, Depends
+import logging
+from fastapi import APIRouter, Depends
 from auth.cognito import verify_token
 from services.bedrock import get_clinical_decision_support
+from models.requests import DecisionSupportRequest
+from models.responses import DecisionSupportResponse
 
 router = APIRouter()
+logger = logging.getLogger("medimind.decision")
 
-@router.post("/suggest")
-async def get_decision_support(payload: dict, claims: dict = Depends(verify_token)):
-    patient_context = payload.get("patient_context", "")
-    query = payload.get("query", "")
-    if not patient_context or not query:
-        raise HTTPException(status_code=400, detail="patient_context and query are required")
-    suggestions = await get_clinical_decision_support(patient_context, query)
-    return {"query": query, "suggestions": suggestions}
+
+@router.post("/suggest", response_model=DecisionSupportResponse)
+async def get_decision_support(
+    payload: DecisionSupportRequest,
+    claims: dict = Depends(verify_token),
+):
+    """Get evidence-based clinical decision support powered by AI."""
+    suggestions = await get_clinical_decision_support(payload.patient_context, payload.query)
+    logger.info("decision_support_query", extra={"clinician_id": claims["sub"]})
+    return {"query": payload.query, "suggestions": suggestions}
