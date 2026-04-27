@@ -6,10 +6,10 @@ resource "aws_vpc" "main" {
 }
 
 resource "aws_subnet" "public" {
-  count             = 2
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.${count.index}.0/24"
-  availability_zone = data.aws_availability_zones.available.names[count.index]
+  count                   = 2
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.${count.index}.0/24"
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
   tags = { Name = "medimind-public-${count.index}" }
 }
@@ -28,7 +28,10 @@ resource "aws_internet_gateway" "main" {
 
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
-  route { cidr_block = "0.0.0.0/0"; gateway_id = aws_internet_gateway.main.id }
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
 }
 
 resource "aws_route_table_association" "public" {
@@ -43,13 +46,18 @@ data "aws_availability_zones" "available" {}
 resource "aws_ecr_repository" "backend" {
   name                 = "medimind-backend"
   image_tag_mutability = "IMMUTABLE"
-  image_scanning_configuration { scan_on_push = true }
+  image_scanning_configuration {
+    scan_on_push = true
+  }
 }
 
 # ── ECS Cluster ───────────────────────────────────────────────────────────────
 resource "aws_ecs_cluster" "main" {
   name = "medimind-cluster"
-  setting { name = "containerInsights"; value = "enabled" }
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
 }
 
 # ── IAM Role for ECS Task ─────────────────────────────────────────────────────
@@ -80,21 +88,27 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
         Effect = "Allow"
         Action = [
           "transcribe:StartMedicalTranscriptionJob",
-          "transcribe:GetMedicalTranscriptionJob",
+          "transcribe:GetMedicalTranscriptionJob"
         ]
         Resource = "*"
       },
       {
         Effect = "Allow"
-        Action = ["comprehendmedical:DetectEntitiesV2", "comprehendmedical:InferRxNorm"]
+        Action = [
+          "comprehendmedical:DetectEntitiesV2",
+          "comprehendmedical:InferRxNorm"
+        ]
         Resource = "*"
       },
       {
         Effect = "Allow"
-        Action = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem"]
-        Resource = [
-          "arn:aws:dynamodb:${var.aws_region}:${var.account_id}:table/medimind-*"
+        Action = [
+          "dynamodb:PutItem",
+          "dynamodb:GetItem",
+          "dynamodb:Query",
+          "dynamodb:UpdateItem"
         ]
+        Resource = "arn:aws:dynamodb:${var.aws_region}:${var.account_id}:table/medimind-*"
       },
       {
         Effect   = "Allow"
@@ -108,14 +122,9 @@ resource "aws_iam_role_policy" "ecs_task_policy" {
       },
       {
         Effect   = "Allow"
-        Action   = ["healthlake:*"]
-        Resource = aws_healthlake_fhir_datastore.medimind.datastore_arn
-      },
-      {
-        Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = aws_secretsmanager_secret.app_secrets.arn
-      },
+      }
     ]
   })
 }
@@ -137,7 +146,7 @@ resource "aws_iam_role_policy_attachment" "ecs_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# ── Secrets Manager for env vars ──────────────────────────────────────────────
+# ── Secrets Manager ───────────────────────────────────────────────────────────
 resource "aws_secretsmanager_secret" "app_secrets" {
   name = "medimind/app-secrets"
 }
@@ -155,7 +164,10 @@ resource "aws_ecs_task_definition" "backend" {
   container_definitions = jsonencode([{
     name  = "medimind-backend"
     image = "${aws_ecr_repository.backend.repository_url}:latest"
-    portMappings = [{ containerPort = 8000, protocol = "tcp" }]
+    portMappings = [{
+      containerPort = 8000
+      protocol      = "tcp"
+    }]
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -168,11 +180,11 @@ resource "aws_ecs_task_definition" "backend" {
       { name = "COGNITO_USER_POOL_ID", valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:COGNITO_USER_POOL_ID::" },
       { name = "COGNITO_CLIENT_ID",    valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:COGNITO_CLIENT_ID::" },
       { name = "HEALTHLAKE_ENDPOINT",  valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:HEALTHLAKE_ENDPOINT::" },
-      { name = "SNS_ALERT_TOPIC_ARN",  valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:SNS_ALERT_TOPIC_ARN::" },
+      { name = "SNS_ALERT_TOPIC_ARN",  valueFrom = "${aws_secretsmanager_secret.app_secrets.arn}:SNS_ALERT_TOPIC_ARN::" }
     ]
     environment = [
-      { name = "AWS_REGION",         value = var.aws_region },
-      { name = "TRANSCRIBE_BUCKET",  value = "medimind-audio-${var.account_id}" },
+      { name = "AWS_REGION",        value = var.aws_region },
+      { name = "TRANSCRIBE_BUCKET", value = "medimind-audio-${var.account_id}" }
     ]
   }])
 }
@@ -186,32 +198,46 @@ resource "aws_cloudwatch_log_group" "ecs" {
 resource "aws_security_group" "alb" {
   name   = "medimind-alb-sg"
   vpc_id = aws_vpc.main.id
-  ingress { from_port = 443; to_port = 443; protocol = "tcp"; cidr_blocks = ["0.0.0.0/0"] }
-  # Port 80 only to redirect to HTTPS — no direct traffic served over HTTP
-  ingress { from_port = 80; to_port = 80; protocol = "tcp"; cidr_blocks = ["0.0.0.0/0"] }
-  egress  { from_port = 0;  to_port = 0;  protocol = "-1";  cidr_blocks = ["0.0.0.0/0"] }
-}
 
-# Force HTTP → HTTPS redirect at ALB level
-resource "aws_lb_listener" "http_redirect" {
-  load_balancer_arn = aws_lb.main.arn
-  port              = 80
-  protocol          = "HTTP"
-  default_action {
-    type = "redirect"
-    redirect {
-      port        = "443"
-      protocol    = "HTTPS"
-      status_code = "HTTP_301"
-    }
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
 resource "aws_security_group" "ecs" {
   name   = "medimind-ecs-sg"
   vpc_id = aws_vpc.main.id
-  ingress { from_port = 8000; to_port = 8000; protocol = "tcp"; security_groups = [aws_security_group.alb.id] }
-  egress  { from_port = 0;    to_port = 0;    protocol = "-1";  cidr_blocks = ["0.0.0.0/0"] }
+
+  ingress {
+    from_port       = 8000
+    to_port         = 8000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 }
 
 resource "aws_lb" "main" {
@@ -228,16 +254,27 @@ resource "aws_lb_target_group" "backend" {
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
   target_type = "ip"
-  health_check { path = "/health"; healthy_threshold = 2; unhealthy_threshold = 3 }
+
+  health_check {
+    path                = "/health"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
 }
 
-resource "aws_lb_listener" "https" {
+resource "aws_lb_listener" "http_redirect" {
   load_balancer_arn = aws_lb.main.arn
-  port              = 443
-  protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = var.acm_certificate_arn
-  default_action { type = "forward"; target_group_arn = aws_lb_target_group.backend.arn }
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
+    }
+  }
 }
 
 # ── ECS Service ───────────────────────────────────────────────────────────────
@@ -260,7 +297,10 @@ resource "aws_ecs_service" "backend" {
     container_port   = 8000
   }
 
-  deployment_circuit_breaker { enable = true; rollback = true }
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
 }
 
 # ── Auto Scaling ──────────────────────────────────────────────────────────────
@@ -280,7 +320,9 @@ resource "aws_appautoscaling_policy" "cpu" {
   service_namespace  = aws_appautoscaling_target.ecs.service_namespace
 
   target_tracking_scaling_policy_configuration {
-    predefined_metric_specification { predefined_metric_type = "ECSServiceAverageCPUUtilization" }
+    predefined_metric_specification {
+      predefined_metric_type = "ECSServiceAverageCPUUtilization"
+    }
     target_value = 70.0
   }
 }

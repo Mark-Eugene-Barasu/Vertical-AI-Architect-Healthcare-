@@ -2,15 +2,15 @@ terraform {
   required_providers {
     aws = { source = "hashicorp/aws", version = "~> 5.0" }
   }
-  backend "s3" {
-    bucket = "medimind-terraform-state"
-    key    = "prod/terraform.tfstate"
-    region = "us-east-1"
-  }
 }
 
 provider "aws" {
   region = var.aws_region
+}
+
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
 }
 
 # S3 bucket for audio files (HIPAA: encrypted)
@@ -46,6 +46,7 @@ resource "aws_dynamodb_table" "clinical_notes" {
     name = "patient_id"
     type = "S"
   }
+
   attribute {
     name = "note_id"
     type = "S"
@@ -94,4 +95,16 @@ resource "aws_cloudtrail" "audit" {
   include_global_service_events = true
   is_multi_region_trail         = true
   enable_log_file_validation    = true
+}
+
+output "cognito_user_pool_id" {
+  value = aws_cognito_user_pool.clinicians.id
+}
+
+output "cognito_client_id" {
+  value = aws_cognito_user_pool_client.app.id
+}
+
+output "audio_bucket_name" {
+  value = aws_s3_bucket.audio.bucket
 }

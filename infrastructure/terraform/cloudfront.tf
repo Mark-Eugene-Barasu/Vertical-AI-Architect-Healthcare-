@@ -14,7 +14,9 @@ resource "aws_s3_bucket_public_access_block" "frontend" {
 resource "aws_s3_bucket_server_side_encryption_configuration" "frontend" {
   bucket = aws_s3_bucket.frontend.id
   rule {
-    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
   }
 }
 
@@ -44,102 +46,31 @@ resource "aws_s3_bucket_policy" "frontend" {
   })
 }
 
-# ── CloudFront Distribution ───────────────────────────────────────────────────
-resource "aws_cloudfront_distribution" "frontend" {
-  enabled             = true
-  default_root_object = "index.html"
-  price_class         = "PriceClass_100"
-  aliases             = [var.domain_name]
-
-  origin {
-    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
-    origin_id                = "S3-medimind-frontend"
-    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
-  }
-
-  # API proxy to ALB
-  origin {
-    domain_name = aws_lb.main.dns_name
-    origin_id   = "ALB-medimind-api"
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "https-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-    }
-  }
-
-  # /api/* → ALB (backend)
-  ordered_cache_behavior {
-    path_pattern           = "/api/*"
-    target_origin_id       = "ALB-medimind-api"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
-    cached_methods         = ["GET", "HEAD"]
-    forwarded_values {
-      query_string = true
-      headers      = ["Authorization", "Content-Type"]
-      cookies { forward = "none" }
-    }
-    min_ttl     = 0
-    default_ttl = 0
-    max_ttl     = 0
-  }
-
-  # Default → S3 (frontend SPA)
-  default_cache_behavior {
-    target_origin_id       = "S3-medimind-frontend"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD"]
-    cached_methods         = ["GET", "HEAD"]
-    forwarded_values {
-      query_string = false
-      cookies { forward = "none" }
-    }
-    min_ttl     = 0
-    default_ttl = 86400
-    max_ttl     = 31536000
-    compress    = true
-  }
-
-  # SPA fallback — return index.html for all 404s
-  custom_error_response {
-    error_code            = 404
-    response_code         = 200
-    response_page_path    = "/index.html"
-  }
-
-  restrictions {
-    geo_restriction { restriction_type = "none" }
-  }
-
-  viewer_certificate {
-    acm_certificate_arn      = var.acm_certificate_arn
-    ssl_support_method       = "sni-only"
-    minimum_protocol_version = "TLSv1.2_2021"
-  }
-
-  web_acl_id = aws_wafv2_web_acl.main.arn
-}
-
-# ── WAF for DDoS + OWASP protection ──────────────────────────────────────────
+# ── WAF ───────────────────────────────────────────────────────────────────────
 resource "aws_wafv2_web_acl" "main" {
-  name  = "medimind-waf"
-  scope = "CLOUDFRONT"
+  name     = "medimind-waf"
+  scope    = "CLOUDFRONT"
   provider = aws.us_east_1
 
-  default_action { allow {} }
+  default_action {
+    allow {}
+  }
 
   rule {
     name     = "AWSManagedRulesCommonRuleSet"
     priority = 1
-    override_action { none {} }
+
+    override_action {
+      none {}
+    }
+
     statement {
       managed_rule_group_statement {
         name        = "AWSManagedRulesCommonRuleSet"
         vendor_name = "AWS"
       }
     }
+
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "CommonRuleSet"
@@ -150,13 +81,18 @@ resource "aws_wafv2_web_acl" "main" {
   rule {
     name     = "RateLimitRule"
     priority = 2
-    action { block {} }
+
+    action {
+      block {}
+    }
+
     statement {
       rate_based_statement {
         limit              = 2000
         aggregate_key_type = "IP"
       }
     }
+
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "RateLimit"
@@ -169,6 +105,89 @@ resource "aws_wafv2_web_acl" "main" {
     metric_name                = "medimind-waf"
     sampled_requests_enabled   = true
   }
+}
+
+# ── CloudFront Distribution ───────────────────────────────────────────────────
+resource "aws_cloudfront_distribution" "frontend" {
+  enabled             = true
+  default_root_object = "index.html"
+  price_class         = "PriceClass_100"
+
+  origin {
+    domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
+    origin_id                = "S3-medimind-frontend"
+    origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
+  }
+
+  origin {
+    domain_name = aws_lb.main.dns_name
+    origin_id   = "ALB-medimind-api"
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  ordered_cache_behavior {
+    path_pattern           = "/api/*"
+    target_origin_id       = "ALB-medimind-api"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD"]
+
+    forwarded_values {
+      query_string = true
+      headers      = ["Authorization", "Content-Type"]
+      cookies {
+        forward = "none"
+      }
+    }
+
+    min_ttl     = 0
+    default_ttl = 0
+    max_ttl     = 0
+  }
+
+  default_cache_behavior {
+    target_origin_id       = "S3-medimind-frontend"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+
+    forwarded_values {
+      query_string = false
+      cookies {
+        forward = "none"
+      }
+    }
+
+    min_ttl     = 0
+    default_ttl = 86400
+    max_ttl     = 31536000
+    compress    = true
+  }
+
+  custom_error_response {
+    error_code         = 404
+    response_code      = 200
+    response_page_path = "/index.html"
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
+  viewer_certificate {
+    acm_certificate_arn      = var.acm_certificate_arn
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
+  }
+
+  web_acl_id = aws_wafv2_web_acl.main.arn
 }
 
 output "cloudfront_domain" {

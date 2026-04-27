@@ -47,6 +47,7 @@ mobile/node_modules/
 *.tfstate.backup
 .terraform.lock.hcl
 terraform.tfvars
+*.tfvars.txt
 *.auto.tfvars
 !terraform.tfvars.example
 crash.log

@@ -21,13 +21,19 @@ resource "aws_dynamodb_table" "patient_timeline" {
     name = "patient_id"
     type = "S"
   }
+
   attribute {
     name = "timestamp"
     type = "S"
   }
 
-  server_side_encryption { enabled = true }
-  point_in_time_recovery { enabled = true }
+  server_side_encryption {
+    enabled = true
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
 }
 
 output "sns_alert_topic_arn" {

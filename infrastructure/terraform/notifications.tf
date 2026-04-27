@@ -3,12 +3,16 @@ resource "aws_ses_email_identity" "noreply" {
   email = "noreply@medimind.ai"
 }
 
-# ── Lambda for Scheduled Notifications ───────────────────────────────────────
+# ── Lambda IAM Role ───────────────────────────────────────────────────────────
 resource "aws_iam_role" "notifications_lambda" {
   name = "medimind-notifications-lambda-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{ Effect = "Allow"; Principal = { Service = "lambda.amazonaws.com" }; Action = "sts:AssumeRole" }]
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
   })
 }
 
@@ -19,23 +23,32 @@ resource "aws_iam_role_policy" "notifications_lambda_policy" {
     Version = "2012-10-17"
     Statement = [{
       Effect = "Allow"
-      Action = ["ses:SendEmail", "dynamodb:Scan", "dynamodb:GetItem", "logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+      Action = [
+        "ses:SendEmail",
+        "dynamodb:Scan",
+        "dynamodb:GetItem",
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ]
       Resource = "*"
     }]
   })
 }
 
+# ── Lambda Function ───────────────────────────────────────────────────────────
 resource "aws_lambda_function" "notifications" {
-  function_name = "medimind-notifications"
-  role          = aws_iam_role.notifications_lambda.arn
-  handler       = "services/notifications/scheduler.lambda_handler"
-  runtime       = "python3.11"
-  timeout       = 300
-  filename      = "notifications_lambda.zip"
+  function_name    = "medimind-notifications"
+  role             = aws_iam_role.notifications_lambda.arn
+  handler          = "services/notifications/scheduler.lambda_handler"
+  runtime          = "python3.11"
+  timeout          = 300
+  filename         = "notifications_lambda.zip"
+  source_code_hash = filebase64sha256("notifications_lambda.zip")
 
   environment {
     variables = {
-      AWS_REGION    = var.aws_region
+      AWS_REGION     = var.aws_region
       SES_FROM_EMAIL = "noreply@medimind.ai"
     }
   }
@@ -44,12 +57,12 @@ resource "aws_lambda_function" "notifications" {
 # ── EventBridge Rules ─────────────────────────────────────────────────────────
 resource "aws_cloudwatch_event_rule" "daily" {
   name                = "medimind-daily-notifications"
-  schedule_expression = "cron(0 8 * * ? *)"  # 8 AM UTC daily
+  schedule_expression = "cron(0 8 * * ? *)"
 }
 
 resource "aws_cloudwatch_event_rule" "monthly" {
   name                = "medimind-monthly-reports"
-  schedule_expression = "cron(0 9 1 * ? *)"  # 9 AM UTC on 1st of month
+  schedule_expression = "cron(0 9 1 * ? *)"
 }
 
 resource "aws_cloudwatch_event_target" "daily" {
