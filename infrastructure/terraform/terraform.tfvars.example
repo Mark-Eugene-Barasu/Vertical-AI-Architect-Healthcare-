@@ -1,0 +1,5 @@
+aws_region          = "us-east-1"
+account_id          = "<your-aws-account-id>"
+domain_name         = "app.medimind.ai"
+acm_certificate_arn = "arn:aws:acm:us-east-1:<account-id>:certificate/<cert-id>"
+alert_email         = "oncall@yourhospital.com"
