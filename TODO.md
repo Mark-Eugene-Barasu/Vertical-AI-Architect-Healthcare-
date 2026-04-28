@@ -35,7 +35,6 @@
 26. ✅ Removed exposed AWS credentials from TODO.md
 
 ---
-
 ## CRITICAL FOLLOW-UP REQUIRED ⚠️
 
 **You must rotate the exposed AWS credentials immediately:**
